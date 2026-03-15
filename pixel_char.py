@@ -15,7 +15,6 @@ except Exception:
     np = None
     MIC_AVAILABLE = False
 
-
 def _load_png_image(path):
     """Load a PNG image for Tkinter display."""
     try:
@@ -31,6 +30,23 @@ def _load_png_image(path):
         return ImageTk.PhotoImage(img)
 
 
+def _composite_png_images(base_path, overlay_path):
+    """Composite overlay onto base using alpha (requires Pillow)."""
+    try:
+        from PIL import Image, ImageTk  # type: ignore
+    except Exception:
+        return None
+    base = Image.open(base_path).convert("RGBA")
+    overlay = Image.open(overlay_path).convert("RGBA")
+    if overlay.size != base.size:
+        # Keep original top-left alignment when sizes differ.
+        composed = base.copy()
+        composed.paste(overlay, (0, 0), overlay)
+    else:
+        composed = Image.alpha_composite(base, overlay)
+    return ImageTk.PhotoImage(composed)
+
+
 def main():
     root = tk.Tk()
     root.title("Pixel Char")
@@ -38,6 +54,7 @@ def main():
     window_ref = {
         "img_window": None,
         "img_label": None,
+        "overlay_label": None,
         "img_objs": None,
         "img_index": 0,
         "after_id": None,
@@ -56,6 +73,18 @@ def main():
         "blink_after_talking_id": None,
         "talking_delay_update_id": None,
         "blink_running": False,
+        "happy_active": False,
+        "happy_after_id": None,
+        "happy_base_images": None,
+        "happy_overlay_images": None,
+        "happy_base_index": 0,
+        "happy_overlay_index": 0,
+        "sad_active": False,
+        "sad_after_id": None,
+        "sad_base_images": None,
+        "sad_overlay_images": None,
+        "sad_base_index": 0,
+        "sad_overlay_index": 0,
     }
 
     delay_var = tk.StringVar(value="500")
@@ -132,6 +161,24 @@ def main():
                 pass
             window_ref["talking_after_id"] = None
 
+    def _cancel_happy():
+        if window_ref["happy_after_id"] is not None:
+            try:
+                root.after_cancel(window_ref["happy_after_id"])
+            except Exception:
+                pass
+            window_ref["happy_after_id"] = None
+        window_ref["happy_active"] = False
+
+    def _cancel_sad():
+        if window_ref["sad_after_id"] is not None:
+            try:
+                root.after_cancel(window_ref["sad_after_id"])
+            except Exception:
+                pass
+            window_ref["sad_after_id"] = None
+        window_ref["sad_active"] = False
+
     def _cancel_mic():
         if window_ref["mic_poll_after_id"] is not None:
             try:
@@ -195,6 +242,8 @@ def main():
         img = _load_png_image(path)
         window_ref["img_label"].configure(image=img)
         window_ref["img_objs"] = [img]
+        if window_ref["overlay_label"] is not None:
+            window_ref["overlay_label"].configure(image="")
         return True
 
     def _refresh_image():
@@ -217,6 +266,12 @@ def main():
         ):
             _cancel_animation()
             return
+        if window_ref["happy_active"]:
+            _cancel_animation()
+            return
+        if window_ref["sad_active"]:
+            _cancel_animation()
+            return
         if talking_var.get():
             _cancel_animation()
             return
@@ -231,6 +286,10 @@ def main():
 
     def _start_animation():
         _cancel_animation()
+        if window_ref["happy_active"]:
+            return
+        if window_ref["sad_active"]:
+            return
         if talking_var.get():
             return
         window_ref["img_index"] = 0
@@ -253,11 +312,16 @@ def main():
         if img_obj is None:
             img_window.destroy()
             return
-        lbl = tk.Label(img_window, image=img_obj)
+        container = tk.Frame(img_window)
+        container.pack()
+        lbl = tk.Label(container, image=img_obj)
         lbl.pack()
+        overlay_lbl = tk.Label(container)
+        overlay_lbl.place(x=0, y=0)
 
         window_ref["img_window"] = img_window
         window_ref["img_label"] = lbl
+        window_ref["overlay_label"] = overlay_lbl
         window_ref["img_objs"] = [img_obj]
         window_ref["img_index"] = 0
 
@@ -268,13 +332,22 @@ def main():
             _cancel_talking()
             _cancel_blink_after_talking()
             _cancel_talking_delay_update()
+            _cancel_happy()
+            _cancel_sad()
             if img_window.winfo_exists():
                 img_window.destroy()
             window_ref["img_window"] = None
             window_ref["img_label"] = None
+            window_ref["overlay_label"] = None
             window_ref["img_objs"] = None
 
         img_window.protocol("WM_DELETE_WINDOW", on_close_img)
+        if window_ref["happy_active"]:
+            _start_happy_animation()
+            return
+        if window_ref["sad_active"]:
+            _start_sad_animation()
+            return
         if talking_var.get():
             _start_talking()
         else:
@@ -487,6 +560,14 @@ def main():
         window_ref["mic_threshold"] = threshold
         level = window_ref["mic_level"] * 100.0
         threshold = window_ref["mic_threshold"]
+        if window_ref["happy_active"]:
+            mic_status_var.set(f"Mic: {level:.3f} {'>=' if level >= threshold else '<'} {threshold:.3f}")
+            window_ref["mic_poll_after_id"] = root.after(100, _mic_poll)
+            return
+        if window_ref["sad_active"]:
+            mic_status_var.set(f"Mic: {level:.3f} {'>=' if level >= threshold else '<'} {threshold:.3f}")
+            window_ref["mic_poll_after_id"] = root.after(100, _mic_poll)
+            return
         if level >= threshold:
             mic_status_var.set(f"Mic: {level:.3f} >= {threshold:.3f}")
             window_ref["mic_below_since"] = None
@@ -639,6 +720,12 @@ def main():
         ):
             _cancel_talking()
             return
+        if window_ref["happy_active"]:
+            _cancel_talking()
+            return
+        if window_ref["sad_active"]:
+            _cancel_talking()
+            return
 
         if window_ref["talking_show_initial"]:
             path = _build_talking_path(window_ref["talking_initial_mouth_open"])
@@ -666,6 +753,10 @@ def main():
         _cancel_talking()
         if window_ref["img_label"] is None:
             return
+        if window_ref["happy_active"]:
+            return
+        if window_ref["sad_active"]:
+            return
         _start_talking_delay_updates()
         window_ref["talking_base"] = random.choice(["HU_", "HD_"])
         window_ref["talking_initial_mouth_open"] = mouth_var.get()
@@ -687,6 +778,142 @@ def main():
         _start_animation()
         _schedule_blink_after_talking()
 
+    def _start_happy_animation():
+        if window_ref["img_window"] is None or not window_ref["img_window"].winfo_exists():
+            window_ref["happy_active"] = True
+            open_image_window()
+            return
+        _cancel_animation()
+        _cancel_blink()
+        _cancel_blink_hold()
+        _cancel_talking()
+        _cancel_blink_after_talking()
+        _cancel_talking_delay_update()
+        _cancel_sad()
+        window_ref["happy_active"] = True
+
+        base_paths = [
+            os.path.join(os.path.dirname(__file__), "HU_Happy.png"),
+            os.path.join(os.path.dirname(__file__), "HD_Happy.png"),
+        ]
+        overlay_paths = [
+            os.path.join(os.path.dirname(__file__), "Heart_1.png"),
+            os.path.join(os.path.dirname(__file__), "Heart_2.png"),
+        ]
+
+        missing = [p for p in base_paths + overlay_paths if not os.path.exists(p)]
+        if missing:
+            messagebox.showerror("Missing File", "Image not found:\n" + "\n".join(missing))
+            window_ref["happy_active"] = False
+            return
+
+        window_ref["happy_base_images"] = [_load_png_image(p) for p in base_paths]
+        window_ref["happy_overlay_images"] = [_load_png_image(p) for p in overlay_paths]
+        window_ref["happy_base_index"] = 0
+        window_ref["happy_overlay_index"] = 0
+
+        def tick():
+            if not window_ref["happy_active"]:
+                return
+            base_path = base_paths[window_ref["happy_base_index"]]
+            overlay_path = overlay_paths[window_ref["happy_overlay_index"]]
+            composed = _composite_png_images(base_path, overlay_path)
+            if composed is not None:
+                window_ref["img_label"].configure(image=composed)
+                if window_ref["overlay_label"] is not None:
+                    window_ref["overlay_label"].configure(image="")
+                window_ref["img_objs"] = [composed]
+            else:
+                base_img = window_ref["happy_base_images"][window_ref["happy_base_index"]]
+                overlay_img = window_ref["happy_overlay_images"][window_ref["happy_overlay_index"]]
+                window_ref["img_label"].configure(image=base_img)
+                if window_ref["overlay_label"] is not None:
+                    window_ref["overlay_label"].configure(image=overlay_img)
+                    window_ref["overlay_label"].lift()
+                window_ref["img_objs"] = [base_img, overlay_img]
+            window_ref["happy_base_index"] = 1 - window_ref["happy_base_index"]
+            window_ref["happy_overlay_index"] = 1 - window_ref["happy_overlay_index"]
+            delay = _get_delay_ms()
+            if delay is None:
+                return
+            window_ref["happy_after_id"] = root.after(delay, tick)
+
+        tick()
+
+    def _start_sad_animation():
+        if window_ref["img_window"] is None or not window_ref["img_window"].winfo_exists():
+            window_ref["sad_active"] = True
+            open_image_window()
+            return
+        _cancel_animation()
+        _cancel_blink()
+        _cancel_blink_hold()
+        _cancel_talking()
+        _cancel_blink_after_talking()
+        _cancel_talking_delay_update()
+        _cancel_happy()
+        window_ref["sad_active"] = True
+
+        base_paths = [
+            os.path.join(os.path.dirname(__file__), "HU_Sad.png"),
+            os.path.join(os.path.dirname(__file__), "HD_Sad.png"),
+        ]
+        overlay_paths = [
+            os.path.join(os.path.dirname(__file__), "Broken_1.png"),
+            os.path.join(os.path.dirname(__file__), "Broken_2.png"),
+        ]
+
+        missing = [p for p in base_paths + overlay_paths if not os.path.exists(p)]
+        if missing:
+            messagebox.showerror("Missing File", "Image not found:\n" + "\n".join(missing))
+            window_ref["sad_active"] = False
+            return
+
+        window_ref["sad_base_images"] = [_load_png_image(p) for p in base_paths]
+        window_ref["sad_overlay_images"] = [_load_png_image(p) for p in overlay_paths]
+        window_ref["sad_base_index"] = 0
+        window_ref["sad_overlay_index"] = 0
+
+        def tick():
+            if not window_ref["sad_active"]:
+                return
+            base_path = base_paths[window_ref["sad_base_index"]]
+            overlay_path = overlay_paths[window_ref["sad_overlay_index"]]
+            composed = _composite_png_images(base_path, overlay_path)
+            if composed is not None:
+                window_ref["img_label"].configure(image=composed)
+                if window_ref["overlay_label"] is not None:
+                    window_ref["overlay_label"].configure(image="")
+                window_ref["img_objs"] = [composed]
+            else:
+                base_img = window_ref["sad_base_images"][window_ref["sad_base_index"]]
+                overlay_img = window_ref["sad_overlay_images"][window_ref["sad_overlay_index"]]
+                window_ref["img_label"].configure(image=base_img)
+                if window_ref["overlay_label"] is not None:
+                    window_ref["overlay_label"].configure(image=overlay_img)
+                    window_ref["overlay_label"].lift()
+                window_ref["img_objs"] = [base_img, overlay_img]
+            window_ref["sad_base_index"] = 1 - window_ref["sad_base_index"]
+            window_ref["sad_overlay_index"] = 1 - window_ref["sad_overlay_index"]
+            delay = _get_delay_ms()
+            if delay is None:
+                return
+            window_ref["sad_after_id"] = root.after(delay, tick)
+
+        tick()
+
+    def _stop_emotion_animation():
+        _cancel_happy()
+        _cancel_sad()
+        if window_ref["overlay_label"] is not None:
+            window_ref["overlay_label"].configure(image="")
+        if window_ref["img_window"] is None or not window_ref["img_window"].winfo_exists():
+            return
+        if talking_var.get():
+            _start_talking()
+        else:
+            _start_animation()
+
     def on_close_main():
         try:
             _cancel_animation()
@@ -695,6 +922,8 @@ def main():
             _cancel_talking()
             _cancel_blink_after_talking()
             _cancel_talking_delay_update()
+            _cancel_happy()
+            _cancel_sad()
             _cancel_mic()
             if window_ref["img_window"] is not None and window_ref["img_window"].winfo_exists():
                 window_ref["img_window"].destroy()
@@ -747,6 +976,20 @@ def main():
         talking_row, textvariable=talking_delay_var, width=10
     )
     talking_delay_entry.pack(side=tk.LEFT)
+
+    happy_row = tk.Frame(root)
+    happy_row.pack(padx=20, pady=5)
+    happy_btn = tk.Button(happy_row, text="Happy", width=10, command=_start_happy_animation)
+    happy_btn.pack(side=tk.LEFT, padx=6)
+    stop_happy_btn = tk.Button(
+        happy_row, text="Stop", width=10, command=_stop_emotion_animation
+    )
+    stop_happy_btn.pack(side=tk.LEFT)
+
+    sad_row = tk.Frame(root)
+    sad_row.pack(padx=20, pady=5)
+    sad_btn = tk.Button(sad_row, text="Sad", width=10, command=_start_sad_animation)
+    sad_btn.pack(side=tk.LEFT, padx=6)
 
     talking_range_row = tk.Frame(root)
     talking_range_row.pack(padx=20, pady=5)
