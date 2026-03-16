@@ -105,6 +105,7 @@ def main():
     blink_after_talking_var = tk.BooleanVar(value=False)
     blink_after_min_var = tk.StringVar(value="2")
     blink_after_max_var = tk.StringVar(value="6")
+    overlay_enabled_var = tk.BooleanVar(value=True)
 
     blink_options = {
         "EO: EC -> EO": "EO_1",
@@ -242,8 +243,8 @@ def main():
         img = _load_png_image(path)
         window_ref["img_label"].configure(image=img)
         window_ref["img_objs"] = [img]
-        if window_ref["overlay_label"] is not None:
-            window_ref["overlay_label"].configure(image="")
+        # if window_ref["overlay_label"] is not None:
+        #     window_ref["overlay_label"].configure(image="")
         return True
 
     def _refresh_image():
@@ -316,7 +317,7 @@ def main():
         container.pack()
         lbl = tk.Label(container, image=img_obj)
         lbl.pack()
-        overlay_lbl = tk.Label(container)
+        overlay_lbl = tk.Label(container, bd=0, highlightthickness=0, borderwidth=0, bg=container["bg"])
         overlay_lbl.place(x=0, y=0)
 
         window_ref["img_window"] = img_window
@@ -817,20 +818,27 @@ def main():
                 return
             base_path = base_paths[window_ref["happy_base_index"]]
             overlay_path = overlay_paths[window_ref["happy_overlay_index"]]
-            composed = _composite_png_images(base_path, overlay_path)
-            if composed is not None:
-                window_ref["img_label"].configure(image=composed)
-                if window_ref["overlay_label"] is not None:
-                    window_ref["overlay_label"].configure(image="")
-                window_ref["img_objs"] = [composed]
+            if overlay_enabled_var.get():
+                composed = _composite_png_images(base_path, overlay_path)
+                if composed is not None:
+                    window_ref["img_label"].configure(image=composed)
+                    if window_ref["overlay_label"] is not None:
+                        window_ref["overlay_label"].configure(image="")
+                    window_ref["img_objs"] = [composed]
+                else:
+                    base_img = window_ref["happy_base_images"][window_ref["happy_base_index"]]
+                    overlay_img = window_ref["happy_overlay_images"][window_ref["happy_overlay_index"]]
+                    window_ref["img_label"].configure(image=base_img)
+                    if window_ref["overlay_label"] is not None:
+                        window_ref["overlay_label"].configure(image=overlay_img)
+                        window_ref["overlay_label"].lift()
+                    window_ref["img_objs"] = [base_img, overlay_img]
             else:
                 base_img = window_ref["happy_base_images"][window_ref["happy_base_index"]]
-                overlay_img = window_ref["happy_overlay_images"][window_ref["happy_overlay_index"]]
                 window_ref["img_label"].configure(image=base_img)
                 if window_ref["overlay_label"] is not None:
-                    window_ref["overlay_label"].configure(image=overlay_img)
-                    window_ref["overlay_label"].lift()
-                window_ref["img_objs"] = [base_img, overlay_img]
+                    window_ref["overlay_label"].configure(image="")
+                window_ref["img_objs"] = [base_img]
             window_ref["happy_base_index"] = 1 - window_ref["happy_base_index"]
             window_ref["happy_overlay_index"] = 1 - window_ref["happy_overlay_index"]
             delay = _get_delay_ms()
@@ -879,20 +887,27 @@ def main():
                 return
             base_path = base_paths[window_ref["sad_base_index"]]
             overlay_path = overlay_paths[window_ref["sad_overlay_index"]]
-            composed = _composite_png_images(base_path, overlay_path)
-            if composed is not None:
-                window_ref["img_label"].configure(image=composed)
-                if window_ref["overlay_label"] is not None:
-                    window_ref["overlay_label"].configure(image="")
-                window_ref["img_objs"] = [composed]
+            if overlay_enabled_var.get():
+                composed = _composite_png_images(base_path, overlay_path)
+                if composed is not None:
+                    window_ref["img_label"].configure(image=composed)
+                    if window_ref["overlay_label"] is not None:
+                        window_ref["overlay_label"].configure(image="")
+                    window_ref["img_objs"] = [composed]
+                else:
+                    base_img = window_ref["sad_base_images"][window_ref["sad_base_index"]]
+                    overlay_img = window_ref["sad_overlay_images"][window_ref["sad_overlay_index"]]
+                    window_ref["img_label"].configure(image=base_img)
+                    if window_ref["overlay_label"] is not None:
+                        window_ref["overlay_label"].configure(image=overlay_img)
+                        window_ref["overlay_label"].lift()
+                    window_ref["img_objs"] = [base_img, overlay_img]
             else:
                 base_img = window_ref["sad_base_images"][window_ref["sad_base_index"]]
-                overlay_img = window_ref["sad_overlay_images"][window_ref["sad_overlay_index"]]
                 window_ref["img_label"].configure(image=base_img)
                 if window_ref["overlay_label"] is not None:
-                    window_ref["overlay_label"].configure(image=overlay_img)
-                    window_ref["overlay_label"].lift()
-                window_ref["img_objs"] = [base_img, overlay_img]
+                    window_ref["overlay_label"].configure(image="")
+                window_ref["img_objs"] = [base_img]
             window_ref["sad_base_index"] = 1 - window_ref["sad_base_index"]
             window_ref["sad_overlay_index"] = 1 - window_ref["sad_overlay_index"]
             delay = _get_delay_ms()
@@ -985,6 +1000,8 @@ def main():
         happy_row, text="Stop", width=10, command=_stop_emotion_animation
     )
     stop_happy_btn.pack(side=tk.LEFT)
+    overlay_cb = tk.Checkbutton(happy_row, text="Overlay", variable=overlay_enabled_var)
+    overlay_cb.pack(side=tk.LEFT, padx=6)
 
     sad_row = tk.Frame(root)
     sad_row.pack(padx=20, pady=5)
